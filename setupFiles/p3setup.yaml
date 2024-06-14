@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: A template to create a DynamoDB table, a Lambda function, and a REST API Gateway
+
+Resources:
+  ThndrContactUsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: thndr-contactUs
+      AttributeDefinitions:
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
+  ThndrLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: thndr-POST
+      Runtime: python3.8
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import time
+
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table('thndr-contactUs')
+
+          def lambda_handler(event, context):
+              try:
+                  email = event['email']
+                  name = event['name']
+                  industry = event['industry']
+                  state = event['state']
+                  
+                  gmt_time = time.gmtime()
+                  now = time.strftime('%a, %d %b %Y %H:%M:%S +0000', gmt_time)
+
+                  response = table.put_item(
+                      Item={
+                          'Email': email,
+                          'Name': name,
+                          'Industry': industry,
+                          'State': state,
+                          'Timestamp': now
+                      })
+                  
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps('Data stored successfully in DynamoDB')
+                  }
+              except Exception as e:
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps(f'Error: {str(e)}')
+                  }
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: LambdaDynamoDBPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !GetAtt ThndrContactUsTable.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  ThndrApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: thndr-api-gtw
+      Description: REST API for thndr
+      FailOnWarnings: 'true'
